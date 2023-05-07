@@ -1,53 +1,89 @@
-import { Request, Response } from 'express';
-import Evento from '../models/Evento';
-
-const eventos: Evento[] = [];
+import { Request, Response } from "express";
+import { dbQuery } from "../database/database";
 
 // GET /eventos
-export const listarEventos = (req: Request, res: Response): void => {
-  res.json(eventos);
+export const listarEventos = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const eventos = await dbQuery("SELECT * FROM eventos");
+
+  if (eventos.length > 0) {
+    res.json(eventos);
+  } else {
+    res.status(404).json({
+      msg: "Não existem eventos cadastrados",
+    });
+  }
 };
 
 // POST /eventos
-export const criarEvento = (req: Request, res: Response): void => {
+export const criarEvento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   const { title, date, description, location } = req.body;
 
-  const novoEvento: Evento = {
-    id: eventos.length + 1,
+  const novoEvento = [
     title,
     date,
     description,
     location,
-    created_at: new Date().toDateString()
-  };
+    new Date().toDateString(),
+  ];
 
-  eventos.push(novoEvento);
-
-  res.status(201).json(novoEvento);
+  const sql = `INSERT INTO eventos (title, date, description,location, created_at) VALUES (?, ?, ?,?,?)`;
+  await dbQuery(sql, [
+    title,
+    date,
+    description,
+    location,
+    new Date().toDateString(),
+  ])
+    .then(() => {
+      res.status(201).json({
+        err: false,
+        msg: "Evento criado com sucesso.",
+        evento: novoEvento,
+      });
+    })
+    .catch((err) => {
+      res.json({ err: true, msg: err.message });
+    });
 };
 
 // GET /eventos/:id
-export const obterEvento = (req: Request, res: Response): void => {
+export const obterEvento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   const eventoId = parseInt(req.params.id, 10);
-  const evento = eventos.find((evt) => evt.id === eventoId);
+  const evento = await dbQuery("SELECT * FROM eventos WHERE id = ?", [
+    eventoId,
+  ]);
 
   if (evento) {
     res.json(evento);
   } else {
-    res.status(404).json({ error: 'Evento não encontrado' });
+    res.status(404).json({ err: true, msg: "Evento não encontrado" });
   }
 };
 
 // DELETE /eventos/:id
-export const excluirEvento = (req: Request, res: Response): void => {
+export const excluirEvento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   const eventoId = parseInt(req.params.id, 10);
-  const eventoIndex = eventos.findIndex((evt) => evt.id === eventoId);
+  const eventoIndex = await dbQuery("SELECT * FROM eventos WHERE id = ?", [
+    eventoId,
+  ]);
 
-  if (eventoIndex !== -1) {
-    eventos.splice(eventoIndex, 1);
+  if (eventoIndex.length > 0) {
+    await dbQuery("DELETE FROM eventos WHERE id =?", [eventoId]);
     res.sendStatus(204);
   } else {
-    res.status(404).json({ error: 'Evento não encontrado' });
+    res.status(404).json({ err: true, msg: "Evento não encontrado" });
   }
 };
 

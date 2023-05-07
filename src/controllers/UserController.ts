@@ -19,8 +19,8 @@ function generateToken(usuario: Usuario): string {
 export const criarUsuario = async (req: Request, res: Response): Promise<void> => {
   const { nome, email, senha } = req.body;
   // Verifica se o email já está em uso
-  const usuarioExistente = usuarios.find((usuario) => usuario.email === email);
-  if (usuarioExistente) {
+  const usuarioExistente = await dbQuery('SELECT * FROM usuarios where email = ?', [email]);
+  if (usuarioExistente.length > 0) {
     res.status(409).json({ error: 'O email já está em uso.' });
     return;
   }
