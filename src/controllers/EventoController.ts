@@ -74,14 +74,15 @@ export const excluirEvento = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const eventoId = parseInt(req.params.id, 10);
+  const eventoId = parseInt(req.params.id);
+  console.log(eventoId);
   const eventoIndex = await dbQuery("SELECT * FROM eventos WHERE id = ?", [
     eventoId,
   ]);
 
   if (eventoIndex.length > 0) {
     await dbQuery("DELETE FROM eventos WHERE id =?", [eventoId]);
-    res.sendStatus(204);
+    res.status(201).json({ err: false, msg: `Evento deletado com sucesso.` });
   } else {
     res.status(404).json({ err: true, msg: "Evento não encontrado" });
   }
