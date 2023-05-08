@@ -100,7 +100,12 @@ export const fazerLogin = async (
     // Gera o token JWT
     const token = generateToken(usuario[0]);
 
-    res.json({ err: false, msg: "Logado com sucesso.", token: token });
+    res.json({
+      err: false,
+      msg: "Logado com sucesso.",
+      token: token,
+      id_user: usuario[0].id,
+    });
   } catch (error) {
     console.error("Erro ao fazer login:", error);
     res.status(500).json({ err: true, msg: "Erro ao fazer login." });
