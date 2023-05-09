@@ -1,9 +1,8 @@
 interface Usuario {
-    id: string;
-    nome: string;
-    email: string;
-    senha: string;
-  }
-  
-  export default Usuario;
-  
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+}
+
+export default Usuario;
