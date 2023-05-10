@@ -110,6 +110,65 @@ export const excluirEvento = async (
   }
 };
 
+export const addParticipant = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { id_user, id_event, name_participant } = req.body;
+
+  const user_exist = await dbQuery("SELECT * FROM users WHERE id = ?", [
+    id_user,
+  ]);
+  const event_exist = await dbQuery("SELECT * FROM eventos WHERE id = ?", [
+    id_event,
+  ]);
+
+  if (!user_exist) {
+    res.json({
+      status: 404,
+      err: true,
+      msg: "Usuário não encontrado",
+    });
+  }
+
+  if (!event_exist) {
+    res.json({
+      status: 404,
+      err: true,
+      msg: "Evento não encontrado",
+    });
+  }
+
+  await dbQuery(
+    "INSERT INTO participants (id_user,id_event,name_participant) VALUES (?, ?, ?)",
+    [id_user, id_event, name_participant]
+  )
+    .then(() => {
+      res.json({
+        status: 200,
+        err: false,
+        msg: "Participante adicionado com sucesso.",
+      });
+    })
+    .catch((err) => {
+      res.json({ err: true, msg: err.message });
+    });
+};
+
+export const listParticipants = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { id_event } = req.body;
+  await dbQuery("SELECT * FROM participants WHERE id_event = ?", [id_event])
+    .then((event) => {
+      res.json(event);
+    })
+    .catch((err) => {
+      res.json({ err: true, msg: err.message });
+    });
+};
+
 export default {
   listarEventos,
   criarEvento,
