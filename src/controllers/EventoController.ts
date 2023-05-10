@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { dbQuery } from "../database/database";
+import moment from "moment";
 
 // GET /eventos
 export const listarEventos = async (
@@ -24,25 +25,42 @@ export const criarEvento = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { title, date, description, location, id_user } = req.body;
+  const {
+    title,
+    date,
+    description,
+    location,
+    id_user,
+    locationNumber,
+    locationCity,
+    locationCEP,
+    category,
+    created_by,
+  } = req.body;
+  let dateNow = new Date();
+  let dateEvent = new Date(date);
 
   const novoEvento = [
     title,
-    date,
+    dateEvent.toLocaleDateString(),
     description,
-    location,
+    location + " " + locationNumber + "," + locationCity + " " + locationCEP,
     id_user,
-    new Date().toDateString(),
+    new Date().toLocaleString(),
+    category,
+    created_by,
   ];
-
-  const sql = `INSERT INTO eventos (title, date, description,location,id_user, created_at) VALUES (?, ?, ?,?,?,?)`;
+  const cep = locationCEP ? " - " + locationCEP : locationCEP;
+  const sql = `INSERT INTO eventos (title, date, description,location,category,created_by,id_user, created_at) VALUES (?, ?,?,?, ?,?,?,?)`;
   await dbQuery(sql, [
     title,
-    date,
+    moment(date.replace("/", "-")).format("DD/MM/yyyy"),
     description,
-    location,
+    "R." + location + " , " + locationNumber + " , " + locationCity + cep,
+    category,
+    created_by,
     id_user,
-    new Date().toDateString(),
+    dateNow.toLocaleString(),
   ])
     .then(() => {
       res.json({

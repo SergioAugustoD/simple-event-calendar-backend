@@ -1,11 +1,11 @@
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
+import sqlite3 from "sqlite3";
+import { open } from "sqlite";
 
 export async function initializeDatabase() {
   try {
     // Abre a conexão com o banco de dados SQLite
     const db = await open({
-      filename: './database.sqlite',
+      filename: "./database.sqlite",
       driver: sqlite3.Database,
     });
 
@@ -17,7 +17,9 @@ export async function initializeDatabase() {
         date TEXT NOT NULL,
         description TEXT NOT NULL,
         location TEXT NOT NULL,
-        created_at DATETIME NOT NULL
+        category TEXT NOT NULL,
+        created_at DATETIME NOT NULL,
+        created_by TEXT NOT NULL
       )
     `);
 
@@ -31,9 +33,8 @@ export async function initializeDatabase() {
       )
     `);
 
-    console.log('Conexão com o banco de dados estabelecida.');
+    console.log("Conexão com o banco de dados estabelecida.");
   } catch (error) {
-    console.error('Erro ao inicializar o banco de dados:', error);
+    console.error("Erro ao inicializar o banco de dados:", error);
   }
 }
-

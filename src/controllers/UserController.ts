@@ -5,16 +5,15 @@ import { v4 as uuidv4 } from "uuid";
 import Usuario from "../models/Usuario";
 import { dbQuery } from "../database/database";
 import nodemailer from "nodemailer";
-import sqlite3 from "sqlite3";
 
-const SECRET_KEY = "sua_chave_secreta";
-const db = new sqlite3.Database(":memory:");
-// Simulando um banco de dados de usuários
 const usuarios: Usuario[] = [];
 
 // Função para gerar um token JWT
 function generateToken(usuario: Usuario): string {
-  return jwt.sign({ id: usuario.id, email: usuario.email }, SECRET_KEY);
+  return jwt.sign(
+    { id: usuario.id, email: usuario.email },
+    process.env.SECRET_KEY
+  );
 }
 
 // POST /user/criar
@@ -22,13 +21,21 @@ export const criarUsuario = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { name, email, password } = req.body;
+  const { name, email, password, given_name } = req.body;
+
   // Verifica se o email já está em uso
-  const usuarioExistente = await dbQuery(
-    "SELECT * FROM usuarios where email = ?",
-    [email]
+  const emailExist = await dbQuery("SELECT * FROM users where email = ?", [
+    email,
+  ]);
+  const givenNameExist = await dbQuery(
+    "SELECT * FROM users where given_name = ?",
+    [given_name]
   );
-  if (usuarioExistente.length > 0) {
+  if (givenNameExist.length > 0) {
+    res.json({ status: 409, err: true, msg: "Este apelido já existe" });
+    return;
+  }
+  if (emailExist.length > 0) {
     res.json({ status: 409, err: true, msg: "O email já está em uso." });
     return;
   }
@@ -39,7 +46,7 @@ export const criarUsuario = async (
 
     // Gera o hash da senha
     const senhaHash = await bcrypt.hash(password, salt);
-    const sql = `INSERT INTO usuarios (nome, email, senha) VALUES (?, ?, ?)`;
+    const sql = `INSERT INTO users (name, email, password, given_name) VALUES (?, ?, ?, ?)`;
 
     // Cria um novo usuário
     const novoUsuario: Usuario = {
@@ -47,6 +54,7 @@ export const criarUsuario = async (
       name,
       email,
       password: senhaHash,
+      given_name: given_name,
     };
 
     // Adiciona o novo usuário ao banco de dados
@@ -55,7 +63,7 @@ export const criarUsuario = async (
     // Gera o token JWT
     const token = generateToken(novoUsuario);
 
-    await dbQuery(sql, [name, email, senhaHash])
+    await dbQuery(sql, [name, email, senhaHash, given_name])
       .then(() => {
         res.json({
           status: 200,
@@ -112,7 +120,6 @@ export const UserController_resetPassword = async (
 
   try {
     const user = await getUserByEmail(email);
-    console.log(user);
     if (!user) {
       return res.json({ status: 404, err: true, msg: "User not found" });
     }
@@ -131,7 +138,7 @@ export const UserController_resetPassword = async (
 };
 
 const getUserByEmail = async (email: string) => {
-  const resp = await dbQuery("SELECT * FROM usuarios WHERE email = ?", [email]);
+  const resp = await dbQuery("SELECT * FROM users WHERE email = ?", [email]);
 
   if (resp.length === 0) {
     console.log("ERRO userbyemail");
@@ -143,12 +150,12 @@ const getUserByEmail = async (email: string) => {
 export const UpdatePassword = async (req: Request, res: Response) => {
   const { email, password } = req.body;
   const salt = await bcrypt.genSalt(10);
-  console.log(password);
+
   // Gera o hash da senha
   const senhaHash = await bcrypt.hash(password, salt);
 
   const passUpdate = await dbQuery(
-    "UPDATE usuarios SET senha = ? WHERE email = ?",
+    "UPDATE users SET password = ? WHERE email = ?",
     [senhaHash, email]
   );
 
@@ -174,9 +181,7 @@ export const fazerLogin = async (
   const { email, password } = req.body;
 
   // Verifica se o usuário existe com o email fornecido
-  const usuario = await dbQuery("SELECT * FROM usuarios where email = ?", [
-    email,
-  ]);
+  const usuario = await dbQuery("SELECT * FROM users where email = ?", [email]);
 
   if (!usuario) {
     res.status(401).json({ err: true, msg: "Credenciais inválidas." });
@@ -185,7 +190,7 @@ export const fazerLogin = async (
 
   try {
     // Compara a senha fornecida com o hash armazenado
-    const senhaCorreta = await bcrypt.compare(password, usuario[0].senha);
+    const senhaCorreta = await bcrypt.compare(password, usuario[0].password);
 
     if (!senhaCorreta) {
       res.status(401).json({ err: true, msg: "Credenciais inválidas." });
@@ -200,6 +205,7 @@ export const fazerLogin = async (
       msg: "Logado com sucesso.",
       token: token,
       id_user: usuario[0].id,
+      given_name: usuario[0].given_name,
     });
   } catch (error) {
     console.error("Erro ao fazer login:", error);
