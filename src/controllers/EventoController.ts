@@ -1,27 +1,44 @@
 import { Request, Response } from "express";
 import { dbQuery } from "../database/database";
-import moment from "moment";
+import { IParticipant } from "../../../simple-event-calendar-frontend/src/interfaces/IParticipants";
+import {
+  respJson400,
+  respJson200,
+  respJson404,
+  respJson500,
+} from "../util/respJson";
 
-// GET /eventos
-export const listarEventos = async (
+/**
+ * Recupera os eventos que foram confirmados até a data e hora atual.
+ *
+ * @param {Request} req - O objeto de solicitação.
+ * @param {Response} res - O objeto de resposta.
+ * @return {Promise<void>} - Uma promessa que resolve quando a execução da função termina.
+ */
+export const listEvents = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const eventos = await dbQuery("SELECT * FROM eventos");
-
-  if (eventos.length > 0) {
-    res.json(eventos);
+  const confirmedEvents = await dbQuery(
+    "SELECT * FROM events WHERE confirme_until > ?",
+    [new Date().toLocaleString()]
+  );
+  if (confirmedEvents.length > 0) {
+    res.json(confirmedEvents);
   } else {
-    res.json({
-      status: 404,
-      err: true,
-      msg: "Não existem eventos cadastrados",
-    });
+    respJson404(res, "Não existem eventos cadastrados");
   }
 };
 
-// POST /eventos
-export const criarEvento = async (
+/**
+ * Cria um novo evento no banco de dados com os parâmetros fornecidos no corpo da solicitação.
+ *
+ * @async
+ * @param {Request} req - O objeto de solicitação.
+ * @param {Response} res - O objeto de resposta.
+ * @return {Promise<void>} - Uma Promise que resolve quando a execução da função termina.
+ */
+export const createEvent = async (
   req: Request,
   res: Response
 ): Promise<void> => {
@@ -36,142 +53,226 @@ export const criarEvento = async (
     locationCEP,
     category,
     created_by,
+    confirme_until,
   } = req.body;
-  let dateNow = new Date();
-  let dateEvent = new Date(date);
 
-  const novoEvento = [
-    title,
-    dateEvent.toLocaleDateString(),
-    description,
-    location + " " + locationNumber + "," + locationCity + " " + locationCEP,
-    id_user,
-    new Date().toLocaleString(),
-    category,
-    created_by,
-  ];
-  const cep = locationCEP ? " - " + locationCEP : locationCEP;
-  const sql = `INSERT INTO eventos (title, date, description,location,category,created_by,id_user, created_at) VALUES (?, ?,?,?, ?,?,?,?)`;
-  await dbQuery(sql, [
-    title,
-    moment(date.replace("/", "-")).format("DD/MM/yyyy"),
-    description,
-    "R." + location + " , " + locationNumber + " , " + locationCity + cep,
-    category,
-    created_by,
-    id_user,
-    dateNow.toLocaleString(),
-  ])
-    .then(() => {
-      res.json({
-        status: 200,
-        err: false,
-        msg: "Evento criado com sucesso.",
-        evento: novoEvento,
-      });
-    })
-    .catch((err) => {
-      res.json({ err: true, msg: err.message });
-    });
-};
+  const now = new Date();
+  const cep = locationCEP ? ` - ${locationCEP}` : "";
+  const sql = `
+    INSERT INTO events (
+      title,
+      date,
+      description,
+      location,
+      category,
+      created_by,
+      id_user,
+      created_at,
+      confirme_until
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
 
-// GET /eventos/:id
-export const obterEvento = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const eventoId = parseInt(req.params.id, 10);
-  const evento = await dbQuery("SELECT * FROM eventos WHERE id = ?", [
-    eventoId,
-  ]);
+  if (new Date(confirme_until).toLocaleString() < now.toLocaleString()) {
+    respJson400(
+      res,
+      "Data de confirmação tem que ser maior que a data/hora atual!"
+    );
+    return;
+  }
 
-  if (evento) {
-    res.json(evento);
-  } else {
-    res.status(404).json({ err: true, msg: "Evento não encontrado" });
+  if (new Date(date).toLocaleString() < now.toLocaleString()) {
+    respJson400(res, "Data do evento tem que ser maior que a data/hora atual!");
+    return;
+  }
+
+  try {
+    await dbQuery(sql, [
+      title,
+      new Date(date).toLocaleString(),
+      description,
+      `R.${location}, ${locationNumber}, ${locationCity}${cep}`,
+      category,
+      created_by,
+      id_user,
+      now,
+      new Date(confirme_until).toLocaleString(),
+    ]);
+    respJson200(res, "Evento criado com sucesso.");
+  } catch (err) {
+    respJson500(res, err.message);
   }
 };
 
-// DELETE /eventos/:id
-export const excluirEvento = async (
+/**
+ * Recupera um evento do banco de dados por ID e o envia na resposta como um objeto JSON.
+ *
+ * @async
+ * @function getEvent
+ * @param {Request} req - O objeto de solicitação expressa que contém o ID do evento a ser recuperado.
+ * @param {Response} res - O objeto de resposta expressa usado para enviar o evento recuperado.
+ * @returns {Promessa<void>}
+ */
+export const getEvent = async (req: Request, res: Response): Promise<void> => {
+  const eventId = parseInt(req.params.id, 10);
+  const event = await dbQuery("SELECT * FROM events WHERE id = ?", [eventId]);
+  const response =
+    event.length > 0 ? event : respJson404(res, "Evento não encontrado");
+  res.json(response);
+};
+
+/**
+ * Exclui um evento do banco de dados com o id especificado nos parâmetros da solicitação.
+ *
+ * @param {Request} req - O objeto de solicitação HTTP contendo o id do evento a ser excluído.
+ * @param {Response} res - O objeto de resposta HTTP usado para enviar uma resposta indicando se a exclusão foi bem-sucedida.
+ * @return {Promise<void>} - Uma promessa que resolve quando a exclusão é concluída.
+ */
+export const deleteEvent = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const eventoId = parseInt(req.params.id);
-  const eventoIndex = await dbQuery("SELECT * FROM eventos WHERE id = ?", [
-    eventoId,
-  ]);
-
-  if (eventoIndex.length > 0) {
-    await dbQuery("DELETE FROM eventos WHERE id =?", [eventoId]);
-    res.json({ status: 200, err: false, msg: `Evento deletado com sucesso.` });
-  } else {
-    res.json({ status: 404, err: true, msg: "Evento não encontrado" });
+  const id = parseInt(req.params.id);
+  const result = await dbQuery("DELETE FROM events WHERE id = ?", [id]);
+  if (result) {
+    respJson200(res, "Evento deletado com sucesso");
   }
 };
 
+/**
+ * Adiciona um participante a um evento com o ID de usuário, ID do evento e nome do participante.
+ *
+ * @async
+ * @param {Request<any, any, IParticipant>} req - O objeto de solicitação que contém as informações do participante.
+ * @param {Response} res - O objeto de resposta.
+ * @return {Promise<void>} Uma promessa que resolve quando o participante é adicionado ao evento.
+ * @throws {Error} Se ocorrer um erro ao adicionar o participante ao evento.
+ */
 export const addParticipant = async (
-  req: Request,
+  req: Request<any, any, IParticipant>,
   res: Response
 ): Promise<void> => {
   const { id_user, id_event, name_participant } = req.body;
 
-  const user_exist = await dbQuery("SELECT * FROM users WHERE id = ?", [
-    id_user,
-  ]);
-  const event_exist = await dbQuery("SELECT * FROM eventos WHERE id = ?", [
-    id_event,
-  ]);
+  try {
+    const [userExists, eventExists, participantExists] = await Promise.all([
+      dbQuery("SELECT * FROM users WHERE id = ?", [id_user]),
+      dbQuery("SELECT * FROM events WHERE id = ?", [id_event]),
+      dbQuery("SELECT * FROM participants WHERE id_user = ? AND id_event = ?", [
+        id_user,
+        id_event,
+      ]),
+    ]);
 
-  if (!user_exist) {
-    res.json({
-      status: 404,
-      err: true,
-      msg: "Usuário não encontrado",
-    });
+    if (participantExists.length > 0) {
+      respJson400(res, "Você já é um participante deste evento!");
+      return;
+    }
+
+    if (!userExists.length) {
+      respJson404(res, "Usuário não encontrado");
+      return;
+    }
+
+    if (!eventExists.length) {
+      respJson404(res, "Evento não encontrado");
+      return;
+    }
+
+    await dbQuery(
+      "INSERT INTO participants (id_user, id_event, name_participant) VALUES (?, ?, ?)",
+      [id_user, id_event, name_participant]
+    );
+    respJson200(res, "Adicionado com sucesso no evento!");
+  } catch (error) {
+    respJson500(res, error.message);
   }
-
-  if (!event_exist) {
-    res.json({
-      status: 404,
-      err: true,
-      msg: "Evento não encontrado",
-    });
-  }
-
-  await dbQuery(
-    "INSERT INTO participants (id_user,id_event,name_participant) VALUES (?, ?, ?)",
-    [id_user, id_event, name_participant]
-  )
-    .then(() => {
-      res.json({
-        status: 200,
-        err: false,
-        msg: "Participante adicionado com sucesso.",
-      });
-    })
-    .catch((err) => {
-      res.json({ err: true, msg: err.message });
-    });
 };
 
+/**
+ * Recupera uma lista de participantes para um determinado ID de evento do banco de dados e a envia como uma resposta JSON.
+ *
+ * @param {Request} req - O objeto de solicitação HTTP.
+ * @param {Response} res - O objeto de resposta HTTP.
+ * @return {Promise<void>} - Promessa que resolve quando a função é concluída com sucesso.
+ */
 export const listParticipants = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { id_event } = req.body;
-  await dbQuery("SELECT * FROM participants WHERE id_event = ?", [id_event])
-    .then((event) => {
-      res.json(event);
-    })
-    .catch((err) => {
-      res.json({ err: true, msg: err.message });
-    });
+  const { id_event } = req.query;
+
+  try {
+    const participants = await dbQuery(
+      "SELECT id, name, email FROM participants WHERE id_event = ?",
+      [id_event]
+    );
+
+    res.json(participants);
+  } catch (error) {
+    respJson500(res, error.message);
+  }
+};
+
+/**
+ * Recupera eventos associados a um determinado ID de participante do banco de dados
+ *
+ * @param {Request} req - o objeto Request expresso
+ * @param {Response} res - o objeto Response expresso
+ * @return {Promise<void>} - uma promessa que resolve sem valor
+ */
+export const getEventsByParticipantId = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { id_user } = req.body;
+
+  try {
+    const events = await dbQuery(
+      "SELECT * FROM participants pp INNER JOIN events ev ON ev.id = pp.id_event WHERE pp.id_user = ?",
+      [id_user]
+    );
+
+    res.json(events);
+  } catch (error) {
+    respJson500(res, error.message);
+  }
+};
+
+export const confirmEvent = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { id_user, id_event, confirme_until } = req.body;
+  const now = Date.now();
+  const confirmUntilMillis = new Date(confirme_until).getTime();
+
+  if (now > confirmUntilMillis) {
+    respJson400(res, "Data de confirmação expirou!");
+    return;
+  }
+
+  try {
+    const result = await dbQuery(
+      "UPDATE participants SET confirmed = ? WHERE id_event = ? AND id_user = ?",
+      ["true", id_event, id_user]
+    );
+    if (result) {
+      respJson200(res, "Evento confirmado com sucesso.");
+    } else {
+      respJson400(res, "Evento ou usuário não encontrado.");
+    }
+  } catch (error) {
+    respJson500(res, error.message);
+  }
 };
 
 export default {
-  listarEventos,
-  criarEvento,
-  obterEvento,
-  excluirEvento,
+  listEvents,
+  createEvent,
+  getEvent,
+  deleteEvent,
+  addParticipant,
+  listParticipants,
+  getEventsByParticipantId,
+  confirmEvent,
 };

@@ -5,80 +5,71 @@ import { v4 as uuidv4 } from "uuid";
 import Usuario from "../models/Usuario";
 import { dbQuery } from "../database/database";
 import nodemailer from "nodemailer";
+import {
+  respJson200,
+  respJson401,
+  respJson404,
+  respJson500,
+} from "../util/respJson";
 
-const usuarios: Usuario[] = [];
+/**
+ * Gera um JSON Web Token (JWT) com um determinado ID de usuário e e-mail.
+ * @param id - ID do usuário.
+ * @param email - O email do usuário.
+ * @returns O JWT gerado.
+ */
+export const generateToken = (id: string, email: string): string => {
+  const payload = { userId: id, userEmail: email };
+  const options = { expiresIn: "2h" };
+  const secretKey = process.env.JWT_SECRET;
 
-// Função para gerar um token JWT
-function generateToken(usuario: Usuario): string {
-  return jwt.sign(
-    { id: usuario.id, email: usuario.email },
-    process.env.SECRET_KEY
-  );
-}
+  return jwt.sign(payload, secretKey, options);
+};
 
-// POST /user/criar
-export const criarUsuario = async (
+/**
+ * Cria um novo usuário no banco de dados.
+ * @param req - O objeto de solicitação que contém os dados do usuário no corpo.
+ * @param res - O objeto de resposta para enviar o resultado da operação.
+ * @retorna nulo
+ */
+export const createUser = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { name, email, password, given_name } = req.body;
-
-  // Verifica se o email já está em uso
-  const emailExist = await dbQuery("SELECT * FROM users where email = ?", [
-    email,
-  ]);
-  const givenNameExist = await dbQuery(
-    "SELECT * FROM users where given_name = ?",
-    [given_name]
-  );
-  if (givenNameExist.length > 0) {
-    res.json({ status: 409, err: true, msg: "Este apelido já existe" });
-    return;
-  }
-  if (emailExist.length > 0) {
-    res.json({ status: 409, err: true, msg: "O email já está em uso." });
-    return;
-  }
-
   try {
-    // Gera um salt para o bcrypt
+    const { name, email, password, givenName } = req.body;
+
+    // Verifica se o e-mail ou o apelido já existe
+    const [emailExists, givenNameExists] = await Promise.all([
+      dbQuery("SELECT * FROM users WHERE email = ?", [email]),
+      dbQuery("SELECT * FROM users WHERE given_name = ?", [givenName]),
+    ]);
+    if (emailExists.length > 0) {
+      respJson404(res, "Email está em uso.");
+      return;
+    }
+    if (givenNameExists.length > 0) {
+      respJson404(res, "Apelido está em uso.");
+      return;
+    }
+
+    // Generate salt and hash password
     const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Gera o hash da senha
-    const senhaHash = await bcrypt.hash(password, salt);
-    const sql = `INSERT INTO users (name, email, password, given_name) VALUES (?, ?, ?, ?)`;
+    // Insere o usuário na base
+    const sql = `
+      INSERT INTO users (name, email, password, given_name)
+      VALUES (?, ?, ?, ?)
+    `;
+    const token = generateToken(uuidv4(), email);
+    await dbQuery(sql, [name, email, hashedPassword, givenName]);
 
-    // Cria um novo usuário
-    const novoUsuario: Usuario = {
-      id: uuidv4(),
-      name,
-      email,
-      password: senhaHash,
-      given_name: given_name,
-    };
-
-    // Adiciona o novo usuário ao banco de dados
-    usuarios.push(novoUsuario);
-
-    // Gera o token JWT
-    const token = generateToken(novoUsuario);
-
-    await dbQuery(sql, [name, email, senhaHash, given_name])
-      .then(() => {
-        res.json({
-          status: 200,
-          err: false,
-          msg: "Usuário criado com sucesso.",
-          token: token,
-          usario: novoUsuario,
-        });
-      })
-      .catch((err) => {
-        res.json({ err: true, msg: err.message });
-      });
+    // Retorna sucesso no response
+    respJson200(res, "Usuário criado com sucesso.", token);
   } catch (error) {
     console.error("Erro ao criar o usuário:", error);
-    res.json({ status: 500, err: true, msg: "Erro ao criar o usuário." });
+    respJson500(res, "Erro ao criar o usuário.");
   }
 };
 
@@ -90,132 +81,140 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-async function sendPasswordResetEmail(email: string) {
+/**
+ * Envia um e-mail de redefinição de senha para o endereço de e-mail especificado.
+ * @param to - O endereço de e-mail do destinatário.
+ */
+async function sendPasswordResetEmail(to: string) {
   const mailOptions = {
-    from: "SIMPLE EVENT CALENDAR <gutogtt1@gmail.com>",
-    to: email,
-    subject: "Password Reset",
-    text: `You requested a password reset. Click on the following link to reset your password: http://localhost:5173/reset-password?email=${email}`,
+    from: "Simple Event Calendar <gutogtt1@gmail.com>",
+    to,
+    subject: "Resetar senha",
+    text: `Você solicitou uma redefinição de senha. Clique no link a seguir para redefinir sua senha: http://localhost:5173/reset-password?email=${to}`,
   };
 
-  await transporter
-    .sendMail(mailOptions)
-    .then((res) => {
-      if (res.response) {
-        console.log(res.response);
-      } else {
-        console.log(res.rejected);
-      }
-    })
-    .catch((err) => {
-      console.log(err);
-    });
+  try {
+    const info = await transporter.sendMail(mailOptions);
+
+    console.log(info.response || info.rejected);
+  } catch (err) {
+    console.error(err);
+  }
 }
 
-export const UserController_resetPassword = async (
-  req: Request,
-  res: Response
-) => {
+/**
+ * Redefine a senha de um usuário com o e-mail fornecido.
+ * Envia um e-mail com instruções de redefinição de senha.
+ * @param req - O objeto de solicitação Express.
+ * @param res - O objeto de resposta Express.
+ */
+export const resetPassword = async (req: Request, res: Response) => {
   const { email } = req.body;
 
   try {
     const user = await getUserByEmail(email);
     if (!user) {
-      return res.json({ status: 404, err: true, msg: "User not found" });
+      respJson404(res, "User not found");
+      return;
     }
 
-    await sendPasswordResetEmail(email).then(() => {
-      return res.json({
-        status: 200,
-        err: false,
-        msg: "Password reset email sent",
-      });
-    });
+    await sendPasswordResetEmail(email);
+    respJson200(res, "Reset de senha enviado com sucesso!");
   } catch (error) {
     console.error(error);
-    return res.json({ status: 500, err: true, msg: "Server error" });
+    respJson500(
+      res,
+      "Erro interno do servidor, entre em contato com um administrador"
+    );
   }
 };
 
 const getUserByEmail = async (email: string) => {
-  const resp = await dbQuery("SELECT * FROM users WHERE email = ?", [email]);
-
-  if (resp.length === 0) {
-    console.log("ERRO userbyemail");
-  }
-  return resp[0];
+  const query = "SELECT * FROM users WHERE email = ?";
+  const result = await dbQuery(query, [email]);
+  return result[0];
 };
 
-// POST /user/update-password
-export const UpdatePassword = async (req: Request, res: Response) => {
+/**
+ * Atualiza a senha de um usuário no banco de dados
+ *
+ * @param {Request} req - O objeto de solicitação contendo o e-mail do usuário e a nova senha
+ * @param {Response} res - O objeto de resposta que enviará uma mensagem de sucesso ou erro
+ * @return {Promise<void>} Uma promessa que resolve quando a senha é atualizada com sucesso
+ */
+export const updateUserPassword = async (req: Request, res: Response) => {
   const { email, password } = req.body;
-  const salt = await bcrypt.genSalt(10);
+  const saltRounds = 10;
+  const salt = await bcrypt.genSalt(saltRounds);
 
-  // Gera o hash da senha
-  const senhaHash = await bcrypt.hash(password, salt);
+  // Generate the password hash
+  const passwordHash = await bcrypt.hash(password, salt);
 
-  const passUpdate = await dbQuery(
+  const passwordUpdateResult = await dbQuery(
     "UPDATE users SET password = ? WHERE email = ?",
-    [senhaHash, email]
+    [passwordHash, email]
   );
 
-  if (passUpdate.length === 0) {
-    return res.json({
-      status: 404,
-      err: true,
-      msg: "Usuário não encontrado",
-    });
+  if (passwordUpdateResult.length === 0) {
+    respJson404(res, "User not found");
+    return;
   }
 
-  return res.json({
-    status: 200,
-    err: false,
-    msg: "Senha atualizada com sucesso",
-  });
+  return respJson200(res, "Password updated successfully");
 };
-// POST /user/login
-export const fazerLogin = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+
+/**
+ * Autentica um usuário por e-mail e senha. Responde com um objeto JSON contendo
+ * um sinalizador de sucesso, uma mensagem, um token, o ID do usuário e o nome do usuário se o
+ * a autenticação foi bem-sucedida. Caso contrário, ele responde com uma mensagem de erro.
+ *
+ * @async
+ * @função loginUser
+ * @param {Request} req - O objeto de solicitação contendo o e-mail e a senha no corpo.
+ * @param {Response} res - O objeto de resposta que conterá o sinalizador de sucesso, mensagem,
+ * token, ID do usuário e apelido fornecido se a autenticação foi bem-sucedida.
+ * @throws {Json401Error} Caso o e-mail não esteja cadastrado ou a senha esteja incorreta.
+ * @throws {Json500Error} Se houver um erro interno do servidor ao gerar um token ou
+ * fazendo login.
+ */
+
+export const loginUser = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
 
-  // Verifica se o usuário existe com o email fornecido
-  const usuario = await dbQuery("SELECT * FROM users where email = ?", [email]);
+  const [user] = await dbQuery("SELECT * FROM users WHERE email = ?", [email]);
 
-  if (!usuario) {
-    res.status(401).json({ err: true, msg: "Credenciais inválidas." });
+  if (!user) {
+    respJson401(res, "Credenciais erradas");
     return;
   }
 
   try {
-    // Compara a senha fornecida com o hash armazenado
-    const senhaCorreta = await bcrypt.compare(password, usuario[0].password);
+    const [isCorrectPassword, token] = await Promise.all([
+      bcrypt.compare(password, user.password),
+      generateToken(user.id, user.email),
+    ]);
 
-    if (!senhaCorreta) {
-      res.status(401).json({ err: true, msg: "Credenciais inválidas." });
+    if (!isCorrectPassword) {
+      respJson401(res, "Credenciais erradas");
       return;
     }
 
-    // Gera o token JWT
-    const token = generateToken(usuario[0]);
-
     res.json({
-      err: false,
-      msg: "Logado com sucesso.",
-      token: token,
-      id_user: usuario[0].id,
-      given_name: usuario[0].given_name,
+      success: true,
+      msg: "Logado com sucesso",
+      token,
+      userId: user.id,
+      givenName: user.given_name,
     });
   } catch (error) {
-    console.error("Erro ao fazer login:", error);
-    res.status(500).json({ err: true, msg: "Erro ao fazer login." });
+    console.error("Error while logging in:", error);
+    respJson500(res, "Erro interno do servidor, contacte um administrador");
   }
 };
 
 export default {
-  criarUsuario,
-  fazerLogin,
-  UserController_resetPassword,
-  UpdatePassword,
+  createUser,
+  loginUser,
+  resetPassword,
+  updateUserPassword,
 };
