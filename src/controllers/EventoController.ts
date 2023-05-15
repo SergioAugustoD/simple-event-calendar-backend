@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
-import { dbQuery } from "../database/database";
 import { IParticipant } from "../../../simple-event-calendar-frontend/src/interfaces/IParticipants";
+import { dbQuery } from "../database/database";
 import {
-  respJson400,
   respJson200,
+  respJson400,
   respJson404,
   respJson500,
 } from "../util/respJson";
@@ -199,11 +199,10 @@ export const listParticipants = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { id_event } = req.query;
-
+  const { id_event } = req.body;
   try {
     const participants = await dbQuery(
-      "SELECT id, name, email FROM participants WHERE id_event = ?",
+      "SELECT * FROM participants WHERE id_event = ?",
       [id_event]
     );
 
@@ -266,6 +265,54 @@ export const confirmEvent = async (
   }
 };
 
+export const createComment = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { comment, idUser, idEvent, author } = req.body;
+  const now = new Date();
+  try {
+    const result = await dbQuery(
+      `
+      INSERT INTO event_comments (comment, idUser, idEvent, author, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `,
+      [comment, idUser, idEvent, author, now.toLocaleString()]
+    );
+
+    if (result) {
+      res.json({ result, msg: "Comment added successfully.", status: 200 });
+    } else {
+      respJson400(res, "Erro ao adicionar o comentário.");
+    }
+  } catch (error) {
+    respJson500(res, error.message);
+  }
+};
+
+export const getCommentsByEventId = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { idEvent } = req.body;
+
+  try {
+    const results = await dbQuery(
+      `
+      SELECT *
+      FROM event_comments
+      WHERE idEvent = ?
+      ORDER BY created_at DESC
+    `,
+      [idEvent]
+    );
+    res.json(results);
+  } catch (error) {
+    throw new Error(
+      `Error fetching comments for event ${idEvent}: ${error.message}`
+    );
+  }
+};
 export default {
   listEvents,
   createEvent,

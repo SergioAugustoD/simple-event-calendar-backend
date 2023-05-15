@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
-import Usuario from "../models/Usuario";
 import { dbQuery } from "../database/database";
 import nodemailer from "nodemailer";
 import {
