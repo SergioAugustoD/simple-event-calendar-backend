@@ -54,10 +54,12 @@ export const createEvent = async (
     category,
     created_by,
     confirme_until,
+    district,
+    uf,
   } = req.body;
 
   const now = new Date();
-  const cep = locationCEP ? ` - ${locationCEP}` : "";
+  const cep = locationCEP ? `${locationCEP}` : "";
   const sql = `
     INSERT INTO events (
       title,
@@ -90,7 +92,7 @@ export const createEvent = async (
       title,
       new Date(date).toLocaleString(),
       description,
-      `R.${location}, ${locationNumber}, ${locationCity}${cep}`,
+      `${location}, ${locationNumber} - ${district}, ${locationCity} - ${uf}, ${cep}`,
       category,
       created_by,
       id_user,
