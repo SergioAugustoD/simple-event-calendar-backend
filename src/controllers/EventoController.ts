@@ -115,11 +115,15 @@ export const createEvent = async (
  * @returns {Promessa<void>}
  */
 export const getEvent = async (req: Request, res: Response): Promise<void> => {
-  const eventId = parseInt(req.params.id, 10);
-  const event = await dbQuery("SELECT * FROM events WHERE id = ?", [eventId]);
-  const response =
-    event.length > 0 ? event : respJson404(res, "Evento não encontrado");
-  res.json(response);
+  try {
+    const eventId = parseInt(req.params.id, 10);
+    const event = await dbQuery("SELECT * FROM events WHERE id = ?", [eventId]);
+    event.length > 0
+      ? res.json(event)
+      : respJson404(res, "Evento não encontrado");
+  } catch (error) {
+    respJson500(res, error.message);
+  }
 };
 
 /**

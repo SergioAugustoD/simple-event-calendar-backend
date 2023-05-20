@@ -1,9 +1,9 @@
-import { Request, Response } from "express";
 import bcrypt from "bcrypt";
+import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
 import { v4 as uuidv4 } from "uuid";
 import { dbQuery } from "../database/database";
-import nodemailer from "nodemailer";
 import {
   respJson200,
   respJson401,
